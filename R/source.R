@@ -1,23 +1,31 @@
 load.acs = function(file, verboes = T) {
   
   start.time = file.info(file)$ctime ## inital guess
-  acs.data = as.data.frame(fread(file, skip = 99))
+  data = as.data.frame(fread(file, skip = 99))
   
   ## Get wavelengths
-  wavelengths = names(acs.data)[-1]
+  wavelengths = names(data)[-1]
   wavelengths = wavelengths[grep(x = wavelengths, pattern = 'C')]
   wavelengths = as.numeric(gsub('C', '', wavelengths))
   
-  acs.att = acs.data[,c(1, grep(x = names(acs.data), pattern = 'C'))]
-  acs.abs = acs.data[,c(1, grep(x = names(acs.data), pattern = 'A'))]
+  att = data[,c(1, grep(x = names(data), pattern = 'C'))]
+  abs = data[,c(1, grep(x = names(data), pattern = 'A'))]
   
-  acs.att$Time = acs.att$`Time(ms)`/1000 + start.time - max(acs.att$`Time(ms)`/1000)
-  acs.att$`Time(ms)` = NULL
+  att$Time = att$`Time(ms)`/1000 + start.time - max(att$`Time(ms)`/1000)
+  att$`Time(ms)` = NULL
   
-  acs.abs$Time = acs.att$Time
-  acs.abs$`Time(ms)` = NULL
+  abs$Time = att$Time
+  abs$`Time(ms)` = NULL
   
-  list(abs = acs.abs, att = acs.att, wavelengths = wavelengths)
+  ## Noise Filter
+  for (i in 2:ncol(abs)) {
+    abs[,i] = runmed(abs[,i], 15)
+  }
+  for (i in 2:ncol(att)) {
+    att[,i] = runmed(att[,i], 15)
+  }
+  
+  list(abs = abs, att = att, wavelengths = wavelengths)
 }
 
 
