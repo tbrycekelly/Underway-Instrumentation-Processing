@@ -2,14 +2,14 @@ library(TheSource)
 library(data.table)
 library(openxlsx)
 library(pals)
-library(zoo)
+#library(zoo)
 
 source('R/source.R')
 
-bb3.dir = 'Z:/Data/Seachest/Underway/SKQ202210S/BB3'
-acs.dir = 'Z:/Data/Seachest/Underway/SKQ202210S/ACS'
-frrf.dir = 'Z:/Data/Seachest/Underway/SKQ202210S/FRRF'
-log.dir = 'Z:/Data/Seachest/Underway/SKQ202210S'
+bb3.dir = 'Z:/Data/Seachest/SKQ202210S/Underway/BB3'
+acs.dir = 'Z:/Data/Seachest/SKQ202210S/Underway/ACS'
+frrf.dir = 'Z:/Data/Seachest/SKQ202210S/Underway/FRRF'
+log.dir = 'Z:/Data/Seachest/SKQ202210S/Underway'
 
 log.file = list.files(log.dir, pattern = '.log', full.names = T)
 acs.file = list.files(acs.dir, pattern = '.dat', full.names = T)
@@ -21,6 +21,7 @@ chl = read.xlsx('Data/SKQ202210S_chl_data_KF.xlsx')
 chl = chl[chl$Depth < 10,]
 chl$Date = conv.time.excel(chl$Date)
 
+pos = readRDS('../NGA-Data-Processing/_rdata/TSG.rdata')
 
 
 ## Parameters
@@ -125,11 +126,6 @@ abs = abs[order(abs$Time),]
 att = att[order(att$Time),]
 
 
-p = prcomp(na.omit(abs[,c(-1, -ncol(abs))]))
-
-
-
-plot(att$Time, att$C400.9, pch = '.', col = col[att$State], ylim = c(0, 2))
 
 #### Calculate seawater values
 # 1 = cal
@@ -150,7 +146,8 @@ for (i in 2:(ncol(abs.cal) - 1)) {
                        na.rm = T,
                        ties = mean,
                        rule = 2)$y
-  abs[,i] = abs[,i] - abs.cal[,i]
+  
+  abs[,i] = abs[,i] - abs.cal[,i] # Adjust baseline!
   abs[abs$State == 1,i] = NA
 }
 
@@ -158,24 +155,64 @@ for (i in 2:(ncol(abs.cal) - 1)) {
 plot(abs.cal$Time, abs.cal$A401, pch = '.', ylim = c(0,1))
 plot(abs$Time, abs$A401, pch = '.', ylim = c(0, 1))
 
-a.LH = abs$A676.2 - (39/65) * abs$A649.9 - (26/65) * abs$A714.2
-a.LH = smooth.spline(x = abs$Time[!is.na(a.LH)], y = a.LH[!is.na(a.LH)], spar = 0.5)
-
-plot(conv.time.unix(a.LH$x), a.LH$y / 0.0126, type = 'l', ylim = c(0, 5))
-points(chl$Date, chl$`Total_Chl_A.(µg/L)`)
-
-
-
 
 
 att.cal = att
 att.cal[att.cal$State == 2, 2:ncol(att.cal)] = NA
 for (i in 2:(ncol(att.cal) - 1)) {
   att.cal[,i] = runmed(att.cal[,i], k = 101)
-  att.cal[,i] = approx(x = att.cal$Time, y = att.cal[,i], xout = att.cal$Time, na.rm = T, ties = median, rule = 2)$y
-  att[,i] = att[,i] - att.cal[,i]
+  att.cal[,i] = approx(x = att.cal$Time,
+                       y = att.cal[,i],
+                       xout = att.cal$Time,
+                       na.rm = T,
+                       ties = median,
+                       rule = 2)$y
+  
+  att[,i] = att[,i] - att.cal[,i] # Adjust baseline!
 }
 
+
+## Add location Data
+abs$Latitude = approx(pos$Datetime, pos$Latitude, xout = abs$Time)$y
+abs$Longitude = approx(pos$Datetime, pos$Longitude, xout = abs$Time)$y
+att$Latitude = approx(pos$Datetime, pos$Latitude, xout = att$Time)$y
+att$Longitude = approx(pos$Datetime, pos$Longitude, xout = att$Time)$y
+
+
+map = make.map.nga()
+
+add.map.points(map,
+               lon = abs$Longitude, lat = abs$Latitude,
+               col = make.pal(att$C461.7, min = 0, max = 1, pal = 'cubicl'),
+               pch = 16,
+               cex = 0.5)
+
+
+#### Analysis
+
+## EOF
+library(wql)
+temp = eof(att[,-c(1, 89:91)] - att.cal[,-c(1,89)], 3)
+
+# Plot EOF response vs wavelength
+plot(NULL, NULL, xlim = c(0, 100), ylim = c(-1,1), ylab = 'Weighting', xlab = 'Wavelength')
+grid()
+
+for (i in 1:ncol(temp$REOF)) {
+  lines(temp$REOF[,i], col = make.pal(i, min = 0, max = 10))
+}
+
+# Plot EOF against time
+plot(abs$Time, temp$amplitude[,1], type = 'l', xlim = c(make.time(2022, 04, 20), make.time(2022,05,01)), ylim = c(-2,2))
+lines(abs$Time, temp$amplitude[,2])
+
+
+## Line height Chl algorithm
+a.LH = abs$A676.2 - (39/65) * abs$A649.9 - (26/65) * abs$A714.2
+a.LH = smooth.spline(x = abs$Time[!is.na(a.LH)], y = a.LH[!is.na(a.LH)], spar = 0.5)
+
+plot(conv.time.unix(a.LH$x), a.LH$y / 0.0126, type = 'l', ylim = c(0, 5))
+points(chl$Date, chl$`Total_Chl_A.(µg/L)`)
 
 
 
@@ -208,13 +245,18 @@ for (i in rev(which(score < 20))) {
 
 saveRDS(frrf, '_rdata/frrf.rds')
 
-pos = readRDS('../NGA-Data-Processing/_rdata/TSG.rdata')
+
 
 for (i in 1:(length(frrf)-1)) {
-  k = which.min((as.numeric(frrf[[i]]$Datetime) - as.numeric(pos$DateTime.UTC.))^2)
+  k = which.min((as.numeric(frrf[[i]]$Datetime) - as.numeric(pos$Datetime))^2)
   
-  frrf[[i]]$lon = pos$Longitude.decimaldegreeseast.[k]
-  frrf[[i]]$lat = pos$Latitude.decimaldegreesnorth.[k]
+  if (length(k) == 1) {
+    frrf[[i]]$lon = pos$Longitude[k]
+    frrf[[i]]$lat = pos$Latitude[k]
+  } else {
+    frrf[[i]]$lon = 0
+    frrf[[i]]$lat = 0
+  }
 }
 
 
@@ -223,7 +265,7 @@ map = make.map.nga()
 for (i in 1:(length(frrf)-1)) {
   add.map.points(map,
                  lon = frrf[[i]]$lon, lat = frrf[[i]]$lat,
-                 col = make.pal(frrf[[i]]$A$Fv.Fm[1], min = 0, max = 1, pal = 'cubicl'),
+                 col = make.pal(frrf[[i]]$A$Fv.Fm[1], min = 0.3, max = 0.7, pal = 'cubicl'),
                  pch = 16)
 }
 
