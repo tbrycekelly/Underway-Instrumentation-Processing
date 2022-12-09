@@ -156,7 +156,6 @@ plot(abs.cal$Time, abs.cal$A401, pch = '.', ylim = c(0,1))
 plot(abs$Time, abs$A401, pch = '.', ylim = c(0, 1))
 
 
-
 att.cal = att
 att.cal[att.cal$State == 2, 2:ncol(att.cal)] = NA
 for (i in 2:(ncol(att.cal) - 1)) {
@@ -169,6 +168,24 @@ for (i in 2:(ncol(att.cal) - 1)) {
                        rule = 2)$y
   
   att[,i] = att[,i] - att.cal[,i] # Adjust baseline!
+}
+
+
+
+
+## Plot resulting timeseries
+d = seq(min(abs$Time, na.rm = T), max(abs$Time, na.rm = T), by = '1 day')
+
+for (dd in d) {
+  l = which(abs(dd - as.numeric(abs$Time)) < 0.5 * 86400)
+  
+  plot(abs$Time[l],
+       abs$A442.6[l],
+       col = col[abs$State[l]],
+       pch = '.',
+       cex = 3,
+       main = conv.time.unix(dd))
+  grid()
 }
 
 
@@ -268,6 +285,11 @@ for (i in 1:(length(frrf)-1)) {
                  col = make.pal(frrf[[i]]$A$Fv.Fm[1], min = 0.3, max = 0.7, pal = 'cubicl'),
                  pch = 16)
 }
+
+
+
+
+
 
 
 
