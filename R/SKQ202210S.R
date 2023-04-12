@@ -27,7 +27,7 @@ pos = readRDS('../NGA-Data-Processing/_rdata/TSG.rdata')
 ## Parameters
 col = c('black', 'red', 'green')
 dt = 60 #sec
-dt.filter = 300 # sec
+dt.filter = 60 # sec
 acs = list()
 
 
@@ -56,10 +56,10 @@ for (i in 1:length(acs.file)) {
   acs[[i]]$att$Time = conv.time.unix(acs[[i]]$att$Time)
 }
 
-saveRDS(acs, '_rdata/acs.rds')
+saveRDS(acs, '_rdata/ACS SKQ202210S.rds')
 
 
-acs = readRDS('_rdata/acs.rds')
+acs = readRDS('_rdata/ACS SKQ202210S.rds')
 
 #### Set states
 # 1 = cal
@@ -81,7 +81,6 @@ for (j in 1:length(acs)) {
   acs[[j]]$abs$State[1:5] = 3
   acs[[j]]$abs$State[(nrow(acs[[j]]$abs)-5):nrow(acs[[j]]$abs)] = 3
   
-  
   ## ATT
   acs[[j]]$att$State = 0
   for (i in 1:nrow(acs[[j]]$abs)) {
@@ -96,6 +95,7 @@ for (j in 1:length(acs)) {
   acs[[j]]$att$State[1:5] = 3
   acs[[j]]$att$State[(nrow(acs[[j]]$att)-5):nrow(acs[[j]]$att)] = 3
 }
+
 
 ### Preliminary Plots
 for (i in 1:length(acs)) {
@@ -125,6 +125,22 @@ rm(acs)
 abs = abs[order(abs$Time),]
 att = att[order(att$Time),]
 
+k = which(abs$State == 1 & abs$A401 > 2)
+abs$State[k] = 3
+
+## Calibration values
+curve = lowess(abs$Time[abs$State == 1], abs$A401[abs$State == 1], f = 0.1)
+plot(abs$Time[abs$State == 1], abs$A401[abs$State == 1], pch = '.')
+lines(curve$x, curve$y)
+
+# Determine difference threshold
+q = quantile(abs(curve$y - abs$A401[abs$State == 1]), probs = c(0.9))
+
+plot(ecdf(abs(curve$y - abs$A401[abs$State == 1])), pch = 'x')
+
+# Exclude bad values
+abs$State[abs$State == 1][abs(curve$y - abs$A401[abs$State == 1]) > q] = 3
+
 
 
 #### Calculate seawater values
@@ -133,13 +149,13 @@ att = att[order(att$Time),]
 # 3 = bad
 abs.original = abs
 abs.cal = abs
-abs.cal[abs.cal$State == 2,] = NA
+abs.cal[abs.cal$State > 1, 2:ncol(abs.cal)] = NA
 abs.cal$Time = abs$Time
 
 
 for (i in 2:(ncol(abs.cal) - 1)) {
   abs.cal[,i][abs.cal[,i] > 1] = NA
-  abs.cal[,i] = runmed(abs.cal[,i], 601)
+  abs.cal[,i] = runmed(abs.cal[,i], 5)
   abs.cal[,i] = approx(x = round(as.numeric(abs.cal$Time)/dt.filter),
                        y = abs.cal[,i],
                        xout = round(as.numeric(abs.cal$Time)/dt.filter),
@@ -148,7 +164,7 @@ for (i in 2:(ncol(abs.cal) - 1)) {
                        rule = 2)$y
   
   abs[,i] = abs[,i] - abs.cal[,i] # Adjust baseline!
-  abs[abs$State == 1,i] = NA
+  abs[abs$State != 2,i] = NA
 }
 
 
@@ -157,9 +173,9 @@ plot(abs$Time, abs$A401, pch = '.', ylim = c(0, 1))
 
 
 att.cal = att
-att.cal[att.cal$State == 2, 2:ncol(att.cal)] = NA
+att.cal[att.cal$State > 1, 2:ncol(att.cal)] = NA
 for (i in 2:(ncol(att.cal) - 1)) {
-  att.cal[,i] = runmed(att.cal[,i], k = 101)
+  att.cal[,i] = runmed(att.cal[,i], k = 5)
   att.cal[,i] = approx(x = att.cal$Time,
                        y = att.cal[,i],
                        xout = att.cal$Time,
@@ -168,8 +184,11 @@ for (i in 2:(ncol(att.cal) - 1)) {
                        rule = 2)$y
   
   att[,i] = att[,i] - att.cal[,i] # Adjust baseline!
+  att[att$State != 2,i] = NA
 }
 
+plot(att.cal$Time, att.cal$C400.9, pch = '.', ylim = c(0,1))
+plot(att$Time, att$C400.9, pch = '.', ylim = c(0, 1))
 
 
 
@@ -205,11 +224,19 @@ add.map.points(map,
                cex = 0.5)
 
 
+saveRDS(abs, file = '_rdata/ABS SKQ202210S.rds')
+saveRDS(att, file = '_rdata/ATT SKQ202210S.rds')
+
+
+
 #### Analysis
+
+
 
 ## EOF
 library(wql)
-temp = eof(att[,-c(1, 89:91)] - att.cal[,-c(1,89)], 3)
+temp = eof(na.omit(att[,-c(1, 89:91)]), n = 25)
+temp$eigen.pct[1:25]
 
 # Plot EOF response vs wavelength
 plot(NULL, NULL, xlim = c(0, 100), ylim = c(-1,1), ylab = 'Weighting', xlab = 'Wavelength')
@@ -220,16 +247,40 @@ for (i in 1:ncol(temp$REOF)) {
 }
 
 # Plot EOF against time
-plot(abs$Time, temp$amplitude[,1], type = 'l', xlim = c(make.time(2022, 04, 20), make.time(2022,05,01)), ylim = c(-2,2))
-lines(abs$Time, temp$amplitude[,2])
+plot(temp$amplitude[,1], type = 'l', ylim = c(-2,2), col = 'black')
+lines(temp$amplitude[,2])
+lines(temp$amplitude[,3])
+
+map = make.map.nga()
+
+add.map.points(map,
+               lon = abs$Longitude, lat = abs$Latitude,
+               col = make.pal(temp$amplitude[,1], min = -0.1, max = 0.1, pal = 'cubicl'),
+               pch = 16,
+               cex = 0.5)
+
+add.map.points(map,
+               lon = abs$Longitude, lat = abs$Latitude,
+               col = make.pal(temp$amplitude[,2], min = 0, max = 0.5, pal = 'cubicl'),
+               pch = 16,
+               cex = 0.5)
+
 
 
 ## Line height Chl algorithm
 a.LH = abs$A676.2 - (39/65) * abs$A649.9 - (26/65) * abs$A714.2
-a.LH = smooth.spline(x = abs$Time[!is.na(a.LH)], y = a.LH[!is.na(a.LH)], spar = 0.5)
+a.LH = smooth.spline(x = abs$Time[!is.na(a.LH)], y = a.LH[!is.na(a.LH)], spar = 0.1)
 
 plot(conv.time.unix(a.LH$x), a.LH$y / 0.0126, type = 'l', ylim = c(0, 5))
 points(chl$Date, chl$`Total_Chl_A.(µg/L)`)
+
+map = make.map.nga()
+
+add.map.points(map,
+               lon = abs$Longitude, lat = abs$Latitude,
+               col = make.pal(a.LH$y / 0.0126, min = 0, max = 1, pal = 'cubicl'),
+               pch = 16,
+               cex = 0.5)
 
 
 

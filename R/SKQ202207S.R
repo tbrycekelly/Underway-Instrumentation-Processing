@@ -2,7 +2,6 @@ library(TheSource)
 library(data.table)
 library(openxlsx)
 library(pals)
-library(zoo)
 
 source('R/source.R')
 
@@ -28,11 +27,11 @@ bb3.file = list.files(bb3.dir, pattern = '.raw', full.names = T)
 ## Parameters
 col = c('grey', 'black', 'red', 'green')
 dt = 60 #sec
-dt.filter = 300 # sec
+dt.filter = 120 # sec
 
 ## Load Data
-load.acs.all(acs.file, dt = 60, outfile = '_rdata/SKQ202207S ACS.rds')
-load.bb3.all(bb3.file, dt = 60, outfile = '_rdata/SKQ202207S BB3.rds')
+load.acs.all(acs.file, dt = dt, outfile = '_rdata/SKQ202207S ACS.rds')
+load.bb3.all(bb3.file, dt = dt, outfile = '_rdata/SKQ202207S BB3.rds')
 
 acs = readRDS('_rdata/SKQ202207S ACS.rds')
 bb3 = readRDS('_rdata/SKQ202207S BB3.rds')
