@@ -5,10 +5,10 @@ library(pals)
 
 source('R/source.R')
 
-bb3.dir = 'Z:/Data/Seachest/SKQ202207S/Underway/BB3'
-acs.dir = 'Z:/Data/Seachest/SKQ202207S/Underway/ACS'
-frrf.dir = 'Z:/Data/Seachest/SKQ202070S/Underway/FRRF'
-log.dir = 'Z:/Data/Seachest/SKQ202207S/Underway'
+bb3.dir = 'A:/Data/Seachest/SKQ202207S/Underway/BB3'
+acs.dir = 'A:/Data/Seachest/SKQ202207S/Underway/ACS'
+frrf.dir = 'A:/Data/Seachest/SKQ202070S/Underway/FRRF'
+log.dir = 'A:/Data/Seachest/SKQ202207S/Underway'
 
 log.file = list.files(log.dir, pattern = '.log', full.names = T)
 event.file = list.files(log.dir, pattern = '.txt', full.names = T)
@@ -28,6 +28,7 @@ bb3.file = list.files(bb3.dir, pattern = '.raw', full.names = T)
 col = c('grey', 'black', 'red', 'green')
 dt = 60 #sec
 dt.filter = 120 # sec
+dt.bb3 = 300 # Delay between the BB3 and valve (approximate residence time of tank)
 
 ## Load Data
 load.acs.all(acs.file, dt = dt, outfile = '_rdata/SKQ202207S ACS.rds')
@@ -35,6 +36,9 @@ load.bb3.all(bb3.file, dt = dt, outfile = '_rdata/SKQ202207S BB3.rds')
 
 acs = readRDS('_rdata/SKQ202207S ACS.rds')
 bb3 = readRDS('_rdata/SKQ202207S BB3.rds')
+for (i in 1:length(bb3)) {
+  bb3[[i]]$Time = bb3[[i]]$Time - dt.bb3
+}
 log = load.logs(log.file)
 
 event = read.csv(event.file[1], sep = '\t', header = F)
@@ -43,6 +47,10 @@ event = data.frame(Time = as.POSIXct(event$V1, tz = 'UTC'),
 
 
 #### Setup Flag Sheet
+# Get a record of all the times that we have data for and setup a flag
+# file as a sequence of flags from the start to the end of the cruise.
+# The flags are evenly spaced and should match the time mapping of the
+# datasets.
 
 acs.times = acs[[1]]$abs$Time
 for (i in 2:length(acs)) {
@@ -68,8 +76,13 @@ flag = data.frame(Time = seq(from = min(bb3.times, acs.times, na.rm = T),
                   Flag = 0,
                   Message = NA)
 
+# Determine which flag times have which data sets:
 flag$ACS = flag$Time %in% acs.times
 flag$BB3 = flag$Time %in% bb3.times
+
+# Fill in the flag values based on valve state from the log assuming that
+# the last valve change prior to the flag time is still the current state.
+# TODO This is a place where additional automated filtering may be beneficial.
 
 for (i in 1:nrow(flag)) {
   l = which(log$Time <= flag$Time[i])
@@ -89,11 +102,14 @@ for (i in 1:nrow(event)) {
   }
 }
 
-flag$Flag = flag$Valve
+flag$Flag = flag$Valve # Default assumption flag = valve.
 # 1 = cal
 # 2 = sample
 # 3 = bad
 # 0 = lab
+
+# Now we will write out this spreadsheet and allow for manual editing. It
+# will be loaded afterwards and used as is from there on out.
 
 tmp.file = tempfile(fileext = '.xlsx')
 write.xlsx(flag, file = tmp.file)
@@ -103,7 +119,7 @@ flag = read.xlsx('Z:/Data/Seachest/SKQ202207S/Underway/SKQ202207S Flag.xlsx')
 flag$Time = conv.time.excel(flag$Time)
 
 
-#### Set states
+#### Set states for ACs
 # 1 = cal
 # 2 = sample
 # 3 = bad
@@ -137,17 +153,51 @@ for (j in 1:length(acs)) {
   acs[[j]]$att$State[is.na(acs[[j]]$att$State)] = 3 #bad
 }
 
-### Preliminary Plots
+
+## Set states for BB3
+for (j in 1:length(bb3)) {
+  
+  bb3[[j]]$State = 0
+  for (i in 1:nrow(bb3[[j]])) {
+    l = which.min(abs(difftime(flag$Time, bb3[[j]]$Time[i],units = 'sec')))
+    
+    if (length(l) > 0) {
+      bb3[[j]]$State[i] = flag$Flag[l]
+    }
+  }
+  bb3[[j]]$State = ma(bb3[[j]]$State, 9)
+  bb3[[j]]$State[bb3[[j]]$State != round(bb3[[j]]$State)] = 3 # bad
+  bb3[[j]]$State[is.na(bb3[[j]]$State)] = 3 #bad
+  
+}
+
+### Preliminary Plots (ACS)
 for (i in 1:length(acs)) {
   plot(acs[[i]]$abs$Time,
        acs[[i]]$abs$A401,
        pch = '.',
        main = i,
-       col = col[acs[[i]]$abs$State+1],
+       col = col[acs[[i]]$abs$State],
        cex = 3)
   
   grid(); box()
   mtext(acs[[i]]$abs$Time[1], side = 3, adj = 0)
+  points(flag$Time, rep(0.5, nrow(flag)), col = col[flag$Flag], pch = '.')
+}
+
+
+### Preliminary Plots (BB3)
+for (i in 1:length(bb3)) {
+  plot(bb3[[i]]$Time,
+       bb3[[i]]$C650,
+       pch = '.',
+       main = i,
+       col = col[bb3[[i]]$State],
+       cex = 3,
+       ylim = c(0, max(pretty(bb3[[i]]$C650))))
+  
+  grid(); box()
+  mtext(bb3[[i]]$Time[1], side = 3, adj = 0)
   points(flag$Time, rep(0.5, nrow(flag)), col = col[flag$Flag], pch = '.')
 }
 
@@ -217,6 +267,9 @@ for (i in 2:(ncol(att.cal) - 1)) {
   att.cal[,i] = approx(x = att.cal$Time, y = att.cal[,i], xout = att.cal$Time, na.rm = T, ties = median, rule = 2)$y
   att[,i] = att[,i] - att.cal[,i]
 }
+
+
+
 
 
 
