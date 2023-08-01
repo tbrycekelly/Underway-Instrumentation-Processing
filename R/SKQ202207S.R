@@ -5,6 +5,8 @@ library(pals)
 
 source('R/source.R')
 
+
+#### Load Raw Data
 bb3.dir = 'A:/Data/Seachest/SKQ202207S/Underway/BB3'
 acs.dir = 'A:/Data/Seachest/SKQ202207S/Underway/ACS'
 frrf.dir = 'A:/Data/Seachest/SKQ202070S/Underway/FRRF'
@@ -46,6 +48,12 @@ event = data.frame(Time = as.POSIXct(event$V1, tz = 'UTC'),
                    Message = event$V2)
 
 
+for (i in 1:length(acs)) {
+  acs[[i]]$abs$Time = acs[[i]]$abs$Time - 8 * 3600
+  acs[[i]]$att$Time = acs[[i]]$att$Time - 8 * 3600
+  
+}
+
 #### Setup Flag Sheet
 # Get a record of all the times that we have data for and setup a flag
 # file as a sequence of flags from the start to the end of the cruise.
@@ -65,6 +73,22 @@ for (i in 2:length(bb3)) {
 }
 bb3.times = unique(bb3.times)
 bb3.times = bb3.times[order(bb3.times)]
+
+{
+  plot(NULL, NULL,
+       xlim = range(acs.times),
+       ylim = c(1, length(acs)))
+  
+  for (i in 1:length(acs)) {
+    lines(range(acs[[i]]$abs$Time),
+          rep(i, 2), lwd = 3)
+  }
+  
+  for (i in 1:length(bb3)) {
+    lines(range(bb3[[i]]$Time),
+          rep(i+0.3, 2), col = 'darkred', lwd = 3)
+  }
+}
 
 # Sheet
 flag = data.frame(Time = seq(from = min(bb3.times, acs.times, na.rm = T),
@@ -115,8 +139,8 @@ tmp.file = tempfile(fileext = '.xlsx')
 write.xlsx(flag, file = tmp.file)
 browseURL(tmp.file)
 
-flag = read.xlsx('Z:/Data/Seachest/SKQ202207S/Underway/SKQ202207S Flag.xlsx')
-flag$Time = conv.time.excel(flag$Time)
+#flag = read.xlsx('A:/Data/Seachest/SKQ202207S/Underway/SKQ202207S Flag.xlsx')
+#flag$Time = conv.time.excel(flag$Time)
 
 
 #### Set states for ACs
@@ -172,6 +196,39 @@ for (j in 1:length(bb3)) {
 }
 
 ### Preliminary Plots (ACS)
+k = seq(2, ncol(acs[[1]]$abs) - 1, by = 5)
+spectra = pals::inferno(length(k))
+
+for (i in 1:length(acs)) {
+  plot(acs[[i]]$abs$Time,
+       acs[[i]]$abs[,k[1]],
+       pch = '.',
+       main = i,
+       col = spectra[1],
+       cex = 3,
+       ylim = c(0, 1))
+  
+  for (j in 2:length(k)) {
+    points(acs[[i]]$abs$Time,
+         acs[[i]]$abs[,k[j]],
+         pch = '.',
+         col = spectra[j],
+         cex = 3)
+  }
+  
+  f = which(diff(flag$Valve == 2) != 0)
+  f = which(diff(flag$Flag == 2) != 0)
+  
+  for (j in seq(2, length(f), by = 2)) {
+    rect(xleft = flag$Time[f[j]], ybottom = -10, xright = flag$Time[f[j+1]], ytop = 10, col = '#00000040', border = F)
+  }
+  
+  grid(); box()
+  mtext(acs[[i]]$abs$Time[1], side = 3, adj = 0)
+  #points(flag$Time, rep(0.5, nrow(flag)), col = col[flag$Flag], pch = '.')
+}
+
+## Based on flags
 for (i in 1:length(acs)) {
   plot(acs[[i]]$abs$Time,
        acs[[i]]$abs$A401,

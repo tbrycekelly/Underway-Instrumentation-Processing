@@ -40,7 +40,15 @@ load.acs.all = function(files, dt, outfile) {
 
 load.acs = function(file, verboes = T) {
   
-  start.time = file.info(file)$ctime ## inital guess
+  start.time =  strsplit(file, split = '_')[[1]][3]
+  start.time = make.time(substr(start.time, 1, 4),
+                         substr(start.time, 5, 6),
+                         substr(start.time, 7, 8),
+                         substr(start.time, 9, 10),
+                         substr(start.time, 11, 12),
+                         substr(start.time, 13, 14),
+                         tz = 'UTC')
+  #start.time = file.info(file)$ctime ## inital guess
   data = as.data.frame(fread(file, skip = 99, verbose = F, showProgress = F))
   
   ## Get wavelengths
@@ -51,7 +59,7 @@ load.acs = function(file, verboes = T) {
   att = data[,c(1, grep(x = names(data), pattern = 'C'))]
   abs = data[,c(1, grep(x = names(data), pattern = 'A'))]
   
-  att$Time = att$`Time(ms)`/1000 + start.time - max(att$`Time(ms)`/1000)
+  att$Time = (att$`Time(ms)` - min(att$`Time(ms)`))/1000 + start.time
   att$`Time(ms)` = NULL
   
   abs$Time = att$Time
